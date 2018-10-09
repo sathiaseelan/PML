@@ -1,0 +1,131 @@
+---
+title: "Practical Machine learning"
+author: "Sathia"
+date: "10/3/2018"
+output: html_document
+---
+
+##Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+##Data
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har.
+
+###Loading the package needed for the modeling.
+```{r loading package and library,results="hide",message=FALSE}
+install.packages("caret",repos = "http://cran.us.r-project.org")
+install.packages("corrplot",repos = "http://cran.us.r-project.org")
+library(corrplot)
+library(caret)
+library(randomForest)
+library(rpart)
+library(rpart.plot)
+```
+
+###Loading the data.
+```{r loading the data}
+
+# Assigning the URL to the variable.
+trainingURL <-  "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testingURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+# Loading the data to a variable.
+training<- read.csv(trainingURL)
+testing<- read.csv(testingURL)
+a<- dim(training)
+```
+
+###Cleaning the data and selecting the variable that would be used in the prediction.
+```{r removing variables with nearzerovariance}
+# sselecting those variables which have near zero variance
+nvz <- nearZeroVar(training)
+# removing those variables from the training and test data set
+training<- training[,-nvz]
+testing<- testing[,-nvz]
+b<-dim(training)
+```
+######we could see that the number of variables got reduced from `r a[2]` to `r b[2]`.
+
+```{r removing variable with more then 95% NA}
+varNA <- sapply(training, function(x) sum(is.na(x))/b[1]) >.95
+training<- training[,varNA==FALSE]
+testing<- testing[,varNA==FALSE]
+# Removing variable  that are used for idenfification.
+training <- training[,-c(1,2,3,4,5)]
+testing <- testing[,-c(1,2,3,4,5)]
+#Spliting the training data 
+inTrain<- createDataPartition(training$classe, p=0.75, list = FALSE)
+Ttraining <- training[inTrain,]
+Ttesting <- training[-inTrain,]
+c<-dim(Ttraining)
+```
+######we could see that total number of varibale has reduced to `r c[2]`.
+```{r checking for correlation}
+## lets check the correlation between the variable
+correlation<-cor(Ttraining[,-54])
+corrplot(correlation, method="shade",tl.pos = "n",order = "hclust", addrect = 2)
+```
+
+######We could see from the plot that the highly correlated variable are few so we could ignore them for this analysis.
+
+##Building the Prediction model.
+### Approach
+1. We will divide the training set into two set 75% & 25% and use them for model training and testing.
+2. We will use the below mentioned three methods for the classification. For all of these models, we will be performing cross-validation using the trainControl function.
+    1.Random forest
+    2.rpart
+    3.Boosting method
+3. We will create a confusion matrix for all the three models and calculate the accuracy of its prediction.
+4. We will then use the model with the highest accuracy on the final testing data set.
+
+### Building the model with Random Forest
+```{r Random forest}
+set.seed(123)
+tC<-trainControl(method ="cv", number=4)
+mRF<- randomForest(classe~., trControl=tC,data=Ttraining)
+mRFP<- predict(mRF,newdata = Ttesting)
+confusionMatrix(mRFP,Ttesting$classe)$table
+```
+### Building the model with rpart
+```{r rpart}
+mRpart<- train(classe ~., method="rpart",trControl=tC, data=Ttraining)
+mRpartp<- predict(mRpart,newdata =Ttesting )
+confusionMatrix(mRpartp,Ttesting$classe)$table
+
+#Plotting the tree structure
+#fancyRpartPlot(model_CT$finalModel)
+```
+### Building the model with glm
+```{r glm}
+mBoosting <- train(classe ~ ., method="gbm",trControl=tC,data=Ttraining,verbose=FALSE)
+mBoostingP <- predict(mBoosting,newdata =Ttesting )
+confusionMatrix(mBoostingP,Ttesting$classe)$table
+```
+
+### Checking the accuracy of all three model from their confussion Matrix.
+```{r accuracy}
+rf<-confusionMatrix(mRFP,Ttesting$classe)$overall[1]
+bs<-confusionMatrix(mBoostingP,Ttesting$classe)$overall[1]
+tr<-confusionMatrix(mRpartp,Ttesting$classe)$overall[1]
+
+Conclusion <- data.frame(Model = c("Random Forest","Boosting Method","Tree")
+                         , Accuracy = c(rf,bs,tr))
+Conclusion
+```
+
+###Prediction for the test set provided.
+####Based on the model accuracy we could see the random forest model has the higher accuracy. Let's use that model to predict the class for the test data
+```{r testdata prediction}
+testP<- predict(mRF,newdata = testing)
+testP
+```
